@@ -1,0 +1,6 @@
+{
+  "name": "DataFlow 6-Layer Pareto Data Pipeline",
+  "description": "End-to-End 6-Layer Data Science & Analytics Platform applying the Pareto 20/80 principle from ingestion to statistical inference, machine learning, and certified business storytelling deliverables.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
