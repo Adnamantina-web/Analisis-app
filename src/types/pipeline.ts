@@ -95,9 +95,14 @@ export interface EDAChart {
   id: string;
   title: string;
   layer: 'univariate' | 'multivariate';
-  chartType: 'histogram_kde' | 'boxplot' | 'qq_plot' | 'bar_freq' | 'donut_freq' | 'scatter_trend' | 'heatmap_corr' | 'contingency_table' | 'grouped_boxplot';
+  chartType: 'histogram_kde' | 'boxplot' | 'qq_plot' | 'bar_freq' | 'donut_freq' | 'scatter_trend' | 'heatmap_corr' | 'contingency_table' | 'grouped_boxplot' | 'pareto_chart';
   variables: string[];
   data: ChartDataPoint[];
+  dataWithoutOutliers?: ChartDataPoint[];
+  hasOutliers?: boolean;
+  outlierCount?: number;
+  outlierPercentage?: number;
+  outlierBounds?: { lower: number; upper: number };
   metadata: Record<string, any>;
   businessTakeaway: string;
   statisticalBacking: string;
@@ -114,6 +119,16 @@ export interface CorrelationPair {
   isSignificant: boolean;
 }
 
+export interface EDAOutlierFeature {
+  column: string;
+  outlierCount: number;
+  outlierPercentage: number;
+  lowerBound: number;
+  upperBound: number;
+  outlierValues: number[];
+  severity: 'low' | 'moderate' | 'high';
+}
+
 export interface EDASummary {
   totalChartsGenerated: number;
   charts: EDAChart[];
@@ -123,6 +138,8 @@ export interface EDASummary {
     topPairs: CorrelationPair[];
   };
   keyFindings: string[];
+  totalOutliersDetected?: number;
+  outlierFeatures?: EDAOutlierFeature[];
 }
 
 export interface AssumptionCheck {
