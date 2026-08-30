@@ -26,7 +26,11 @@ export class StorytellingEngine {
       : 'los patrones de distribución observados en los datos';
     
     const mlInsight = ml?.bestModel
-      ? ` Mediante modelos predictivos se alcanzó una fiabilidad del ${ml.task === 'classification' ? `${((ml.bestModel.metrics.f1Score || 0.8) * 100).toFixed(0)}%` : `R²=${ml.bestModel.metrics.r2}`}, permitiendo anticipar decisiones con alta precisión.`
+      ? (ml.task === 'classification' && ml.bestModel.metrics.f1Score != null
+          ? ` Mediante modelos predictivos se alcanzó un F1-Score balanceado del ${(ml.bestModel.metrics.f1Score * 100).toFixed(0)}%, permitiendo anticipar decisiones con alta precisión.`
+          : ml.task === 'regression' && ml.bestModel.metrics.r2 != null
+          ? ` Mediante modelos predictivos se alcanzó un coeficiente R² de ${ml.bestModel.metrics.r2}, permitiendo anticipar decisiones con alta precisión.`
+          : ` Mediante modelos predictivos (${ml.bestModel.name}) se identificaron los patrones determinantes para anticipar decisiones con alta precisión.`)
       : '';
 
     const executiveSummary = `Este estudio analizó ${cleaning.finalRowCount} registros certificados para dar respuesta a la pregunta estratégica de negocio sobre ${targetName}. Los hallazgos confirman con certeza estadística ${topInsight}, permitiendo optimizar la toma de decisiones y focalizar recursos en los factores determinantes.${mlInsight}`;
@@ -167,22 +171,33 @@ export class StorytellingEngine {
       modelPerformance = `Se entrenaron y compararon ${ml.models.length} familias de modelos supervisados sobre un esquema 70/30 estratificado. El modelo con mejor rendimiento fue "${best.name}". ${best.paretoVerdict} Las variables con mayor impacto en la predicción son: ${best.featureImportances.slice(0, 3).map(f => `${f.feature} (${f.percentage}%)`).join(', ')}.`;
 
       if (ml.task === 'classification') {
-        mlHighlights.push(`Exactitud Global (Accuracy): ${((best.metrics.accuracy || 0) * 100).toFixed(1)}%`);
-        mlHighlights.push(`F1-Score Balanceado: ${((best.metrics.f1Score || 0) * 100).toFixed(1)}% | Capacidad Discriminante (AUC-ROC): ${best.metrics.aucRoc}`);
+        if (best.metrics.accuracy != null) {
+          mlHighlights.push(`Exactitud Global (Accuracy): ${(best.metrics.accuracy * 100).toFixed(1)}%`);
+        }
+        const f1Text = best.metrics.f1Score != null ? `F1-Score Balanceado: ${(best.metrics.f1Score * 100).toFixed(1)}%` : 'F1-Score: N/D';
+        const aucText = best.metrics.aucRoc != null ? `Capacidad Discriminante (AUC-ROC): ${best.metrics.aucRoc}` : 'AUC-ROC: N/D';
+        mlHighlights.push(`${f1Text} | ${aucText}`);
       } else {
-        mlHighlights.push(`Coeficiente de Determinación (R²): ${best.metrics.r2} (explica el ${((best.metrics.r2 || 0) * 100).toFixed(1)}% de la varianza real)`);
-        mlHighlights.push(`Error Cuadrático Medio (RMSE): ${best.metrics.rmse} | Error Absoluto (MAE): ${best.metrics.mae}`);
+        const r2Text = best.metrics.r2 != null ? `Coeficiente de Determinación (R²): ${best.metrics.r2} (explica el ${(best.metrics.r2 * 100).toFixed(1)}% de la varianza real)` : 'R²: N/D';
+        const rmseText = best.metrics.rmse != null ? `Error Cuadrático Medio (RMSE): ${best.metrics.rmse}` : 'RMSE: N/D';
+        const maeText = best.metrics.mae != null ? `Error Absoluto (MAE): ${best.metrics.mae}` : 'MAE: N/D';
+        mlHighlights.push(r2Text);
+        mlHighlights.push(`${rmseText} | ${maeText}`);
       }
 
       mlEvidences.push({
         type: 'metric',
         referenceId: best.id,
         description: `Métricas del modelo líder (${best.name})`,
-        value: ml.task === 'classification' ? `F1=${best.metrics.f1Score}, AUC=${best.metrics.aucRoc}` : `R²=${best.metrics.r2}, RMSE=${best.metrics.rmse}`,
+        value: ml.task === 'classification'
+          ? `F1=${best.metrics.f1Score != null ? best.metrics.f1Score : 'N/D'}, AUC=${best.metrics.aucRoc != null ? best.metrics.aucRoc : 'N/D'}`
+          : `R²=${best.metrics.r2 != null ? best.metrics.r2 : 'N/D'}, RMSE=${best.metrics.rmse != null ? best.metrics.rmse : 'N/D'}`,
       });
 
       if (ml.unsupervised) {
-        mlHighlights.push(`Segmentación No Supervisada: Se identificaron ${ml.unsupervised.kmeans.optimalK} clusters óptimos (Silhouette=${ml.unsupervised.kmeans.elbowCurve.find(e => e.k === ml.unsupervised?.kmeans.optimalK)?.silhouette || 0.45}) y ${ml.unsupervised.pca.retainedComponentsCount} componentes principales que retienen el ${ml.unsupervised.pca.totalVarianceRetained}% de la información.`);
+        const optSilhouette = ml.unsupervised.kmeans.elbowCurve.find(e => e.k === ml.unsupervised?.kmeans.optimalK)?.silhouette;
+        const silhouetteStr = optSilhouette != null ? optSilhouette.toFixed(2) : 'N/D';
+        mlHighlights.push(`Segmentación No Supervisada: Se identificaron ${ml.unsupervised.kmeans.optimalK} clusters óptimos (Silhouette=${silhouetteStr}) y ${ml.unsupervised.pca.retainedComponentsCount} componentes principales que retienen el ${ml.unsupervised.pca.totalVarianceRetained}% de la información.`);
       }
     } else {
       modelPerformance = 'No se aplicaron algoritmos de Machine Learning debido a que el contrato de proyecto definió un nivel descriptivo o inferencial.';

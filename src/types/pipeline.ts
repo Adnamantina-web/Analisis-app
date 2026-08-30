@@ -167,7 +167,7 @@ export interface EDASummary {
 }
 
 export interface AssumptionCheck {
-  testName: 'Shapiro-Wilk' | 'Kolmogorov-Smirnov' | 'D-Agostino' | 'Levene' | 'Bartlett';
+  testName: 'Shapiro-Wilk' | 'Kolmogorov-Smirnov' | 'D-Agostino' | "D'Agostino-Pearson K²" | "D'Agostino-Pearson K² (Asimetría y Curtosis)" | 'Levene' | 'Bartlett' | 'Criterio de Frecuencias Esperadas de Cochran' | string;
   targetVariable: string;
   groupVariable?: string;
   statistic: number;

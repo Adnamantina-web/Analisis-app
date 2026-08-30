@@ -9,7 +9,9 @@ import {
   Printer, 
   Check, 
   FileSpreadsheet,
-  Layers
+  Layers,
+  FileDown,
+  RefreshCw
 } from 'lucide-react';
 import { 
   FinalReport, 
@@ -48,13 +50,32 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
   cleanedRows,
 }) => {
   const [downloadedFormat, setDownloadedFormat] = useState<string | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleDownload = async (format: 'markdown' | 'latex' | 'docx' | 'json' | 'csv' | 'print') => {
+  const handleDownload = async (format: 'pdf' | 'markdown' | 'latex' | 'docx' | 'json' | 'csv' | 'print') => {
     const filenameBase = `pareto_analisis_${contract?.targetVariable || 'dataset'}_seed${contract?.randomSeed || 42}`;
 
-    if (format === 'markdown') {
+    if (format === 'pdf') {
+      if (finalReport && contract) {
+        setIsExportingPdf(true);
+        try {
+          await ReportExporters.generateAndDownloadPDF(finalReport, contract, {
+            edaSummary,
+            inferentialSummary,
+            mlSummary,
+            cleaningSummary,
+            contract,
+            elementIdToCapture: 'report-document-container'
+          });
+        } catch (err) {
+          console.error('Error generating PDF in ArtifactsModal:', err);
+        } finally {
+          setIsExportingPdf(false);
+        }
+      }
+    } else if (format === 'markdown') {
       if (finalReport && contract) {
         const md = ReportExporters.generateMarkdownReport(finalReport, contract, {
           edaSummary,
@@ -113,7 +134,36 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
 
         {/* Artifacts List */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* 1. Markdown Full Report */}
+          {/* 1. PDF High-Fidelity Report */}
+          <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center space-x-2 text-[#1A1A1A] font-serif font-bold text-base">
+                <FileDown className="h-4 w-4 text-[#E63946]" />
+                <span>Informe PDF (.pdf)</span>
+              </div>
+              <p className="text-xs font-serif italic text-gray-600 mt-1">
+                Documento ejecutivo de alta fidelidad con 7 secciones, figuras Pareto y sello de certificación.
+              </p>
+            </div>
+            <button
+              onClick={() => handleDownload('pdf')}
+              disabled={!finalReport || isExportingPdf}
+              className="w-full py-2 bg-[#E63946] hover:bg-[#D90429] text-white text-xs font-mono uppercase tracking-wider flex items-center justify-center space-x-2 transition cursor-pointer disabled:opacity-50 shadow-xs"
+            >
+              {isExportingPdf ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : downloadedFormat === 'pdf' ? (
+                <Check className="h-3.5 w-3.5 text-white" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              <span>
+                {isExportingPdf ? 'Exportando...' : downloadedFormat === 'pdf' ? 'Descargado' : 'Descargar .PDF'}
+              </span>
+            </button>
+          </div>
+
+          {/* 2. Markdown Full Report */}
           <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3">
             <div>
               <div className="flex items-center space-x-2 text-[#1A1A1A] font-serif font-bold text-base">
@@ -134,7 +184,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
             </button>
           </div>
 
-          {/* 2. LaTeX Full Paper */}
+          {/* 3. LaTeX Full Paper */}
           <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3">
             <div>
               <div className="flex items-center space-x-2 text-[#1A1A1A] font-serif font-bold text-base">
@@ -155,7 +205,7 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
             </button>
           </div>
 
-          {/* 3. Decision Log JSON */}
+          {/* 4. Decision Log JSON */}
           <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3">
             <div>
               <div className="flex items-center space-x-2 text-[#1A1A1A] font-serif font-bold text-base">
@@ -175,8 +225,8 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
             </button>
           </div>
 
-          {/* 4. Cleaned Dataset CSV */}
-          <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3">
+          {/* 5. Cleaned Dataset CSV */}
+          <div className="p-4 border border-black/20 bg-[#FAF8F5] flex flex-col justify-between space-y-3 sm:col-span-2">
             <div>
               <div className="flex items-center space-x-2 text-[#1A1A1A] font-serif font-bold text-base">
                 <Database className="h-4 w-4 text-[#E63946]" />
@@ -197,22 +247,22 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
           </div>
         </div>
 
-        {/* Print / PDF Option */}
+        {/* Print Option */}
         <div className="p-4 bg-[#1A1A1A] text-white flex items-center justify-between">
           <div className="space-y-0.5">
             <div className="text-xs font-mono uppercase font-bold text-white flex items-center space-x-1.5">
               <Printer className="h-3.5 w-3.5 text-[#E63946]" />
-              <span>Imprimir / Guardar como PDF</span>
+              <span>Impresión Directa</span>
             </div>
             <div className="text-[11px] font-serif italic text-white/60">
-              Usa el diálogo del navegador para exportar un PDF ejecutivo formal.
+              Usa el diálogo nativo de la impresora para copias físicas inmediatas.
             </div>
           </div>
           <button
             onClick={() => handleDownload('print')}
-            className="px-4 py-2 bg-[#E63946] hover:bg-[#D90429] text-white font-mono text-xs uppercase font-bold rounded transition cursor-pointer"
+            className="px-4 py-2 border border-white/30 hover:border-white text-white font-mono text-xs uppercase font-bold transition cursor-pointer"
           >
-            Imprimir PDF
+            Imprimir
           </button>
         </div>
 
@@ -229,3 +279,4 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
     </div>
   );
 };
+

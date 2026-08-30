@@ -333,7 +333,7 @@ function trainDecisionTree(
 
   const featureImportances = features.map((f, i) => ({
     feature: f,
-    importance: +(bestSplits.importances[i] || 0.05).toFixed(4),
+    importance: +(bestSplits.importances[i] ?? 0).toFixed(4),
     percentage: 0,
   }));
   const totalImp = featureImportances.reduce((a, b) => a + b.importance, 0) || 1;
@@ -704,31 +704,8 @@ function runUnsupervisedAnalysis(X: number[][], featureNames: string[], rows: Re
     };
   });
 
-  // 2. Principal Component Analysis (PCA)
-  const pcaComponents: { pc: string; varianceExplained: number; cumulativeVariance: number }[] = [];
-  let cumVar = 0;
-  let retainedCount = 0;
-
-  // Covariance decomposition simulation
-  const variances = [0.42, 0.25, 0.16, 0.09, 0.05, 0.03];
-  for (let i = 0; i < Math.min(variances.length, p); i++) {
-    const v = variances[i] || 0.02;
-    cumVar += v;
-    pcaComponents.push({
-      pc: `PC${i + 1}`,
-      varianceExplained: +(v * 100).toFixed(1),
-      cumulativeVariance: +Math.min(100, cumVar * 100).toFixed(1),
-    });
-    if (cumVar >= 0.80 && retainedCount === 0) {
-      retainedCount = i + 1;
-    }
-  }
-
-  const loadings = featureNames.slice(0, 6).map((feat, i) => ({
-    feature: feat,
-    PC1: +(0.55 - i * 0.1).toFixed(2),
-    PC2: +(-0.35 + i * 0.15).toFixed(2),
-  }));
+  // 2. Real Principal Component Analysis (PCA) via Empirical Correlation Matrix Eigen-Decomposition
+  const pcaResult = computeRealPCA(X, featureNames);
 
   return {
     kmeans: {
@@ -736,12 +713,136 @@ function runUnsupervisedAnalysis(X: number[][], featureNames: string[], rows: Re
       elbowCurve,
       clusterProfiles,
     },
-    pca: {
-      components: pcaComponents,
-      retainedComponentsCount: retainedCount || 3,
-      totalVarianceRetained: +(cumVar * 100).toFixed(1),
-      loadings,
-    },
+    pca: pcaResult,
+  };
+}
+
+function computeRealPCA(X: number[][], featureNames: string[]) {
+  const n = X.length;
+  const p = featureNames.length;
+  if (n < 2 || p === 0) {
+    return {
+      components: [],
+      retainedComponentsCount: 0,
+      totalVarianceRetained: 0,
+      loadings: [],
+    };
+  }
+
+  // 1. Center and scale X
+  const means = new Array(p).fill(0);
+  const stds = new Array(p).fill(0);
+  for (let j = 0; j < p; j++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += X[i][j];
+    means[j] = sum / n;
+    let ssq = 0;
+    for (let i = 0; i < n; i++) ssq += Math.pow(X[i][j] - means[j], 2);
+    stds[j] = Math.sqrt(ssq / (n - 1)) || 1;
+  }
+
+  // 2. Correlation matrix R (p x p)
+  const R: number[][] = Array.from({ length: p }, () => new Array(p).fill(0));
+  for (let j = 0; j < p; j++) {
+    R[j][j] = 1;
+    for (let k = j + 1; k < p; k++) {
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        sum += ((X[i][j] - means[j]) / stds[j]) * ((X[i][k] - means[k]) / stds[k]);
+      }
+      const corr = sum / (n - 1);
+      R[j][k] = corr;
+      R[k][j] = corr;
+    }
+  }
+
+  // 3. Jacobi eigenvalue decomposition of symmetric matrix R
+  const V: number[][] = Array.from({ length: p }, (_, i) => {
+    const row = new Array(p).fill(0);
+    row[i] = 1;
+    return row;
+  });
+  const A = R.map(row => [...row]);
+
+  for (let iter = 0; iter < 40; iter++) {
+    let maxVal = 0;
+    let pIdx = 0;
+    let qIdx = 1;
+    for (let i = 0; i < p; i++) {
+      for (let j = i + 1; j < p; j++) {
+        if (Math.abs(A[i][j]) > maxVal) {
+          maxVal = Math.abs(A[i][j]);
+          pIdx = i;
+          qIdx = j;
+        }
+      }
+    }
+    if (maxVal < 1e-6) break;
+
+    const app = A[pIdx][pIdx];
+    const aqq = A[qIdx][qIdx];
+    const apq = A[pIdx][qIdx];
+    const theta = (aqq - app) / (2 * apq);
+    const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    const c = 1 / Math.sqrt(1 + t * t);
+    const s = t * c;
+
+    A[pIdx][pIdx] = c * c * app - 2 * s * c * apq + s * s * aqq;
+    A[qIdx][qIdx] = s * s * app + 2 * s * c * apq + c * c * aqq;
+    A[pIdx][qIdx] = 0;
+    A[qIdx][pIdx] = 0;
+
+    for (let k = 0; k < p; k++) {
+      if (k !== pIdx && k !== qIdx) {
+        const akp = A[k][pIdx];
+        const akq = A[k][qIdx];
+        A[k][pIdx] = c * akp - s * akq;
+        A[pIdx][k] = A[k][pIdx];
+        A[k][qIdx] = s * akp + c * akq;
+        A[qIdx][k] = A[k][qIdx];
+      }
+      const vkp = V[k][pIdx];
+      const vkq = V[k][qIdx];
+      V[k][pIdx] = c * vkp - s * vkq;
+      V[k][qIdx] = s * vkp + c * vkq;
+    }
+  }
+
+  const eigenPairs = Array.from({ length: p }, (_, idx) => ({
+    val: Math.max(0, A[idx][idx]),
+    vector: V.map(row => row[idx]),
+  })).sort((a, b) => b.val - a.val);
+
+  const totalEigen = eigenPairs.reduce((acc, pair) => acc + pair.val, 0) || 1;
+  let cumVar = 0;
+  let retainedCount = 0;
+  const pcaComponents = eigenPairs.slice(0, 6).map((pair, idx) => {
+    const varExp = pair.val / totalEigen;
+    cumVar += varExp;
+    if (cumVar >= 0.80 && retainedCount === 0) {
+      retainedCount = idx + 1;
+    }
+    return {
+      pc: `PC${idx + 1}`,
+      varianceExplained: +(varExp * 100).toFixed(1),
+      cumulativeVariance: +Math.min(100, cumVar * 100).toFixed(1),
+    };
+  });
+
+  const finalRetained = retainedCount || Math.min(3, pcaComponents.length);
+  const totalVarianceRetained = pcaComponents.slice(0, finalRetained).reduce((a, b) => a + b.varianceExplained, 0);
+
+  const loadings = featureNames.slice(0, 6).map((feat, fIdx) => ({
+    feature: feat,
+    PC1: eigenPairs[0] ? +(eigenPairs[0].vector[fIdx] || 0).toFixed(2) : 0,
+    PC2: eigenPairs[1] ? +(eigenPairs[1].vector[fIdx] || 0).toFixed(2) : 0,
+  }));
+
+  return {
+    components: pcaComponents,
+    retainedComponentsCount: finalRetained,
+    totalVarianceRetained: +totalVarianceRetained.toFixed(1),
+    loadings,
   };
 }
 

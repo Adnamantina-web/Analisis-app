@@ -10,6 +10,7 @@
  */
 
 import { AssumptionCheck, ColumnSchema, InferentialSummary, ProjectContract, StatisticalTestResult } from '../../types/pipeline';
+import { StatisticalValidator } from './statistical-validator';
 
 export class StatisticsEngine {
   static runInference(
@@ -334,15 +335,15 @@ function testCategoricalVsCategorical(
     altHypothesis: `Existe dependencia estadística y asociación entre las categorías de '${var1}' y '${var2}'.`,
     assumptionsChecked: [
       {
-        testName: 'Shapiro-Wilk',
+        testName: 'Criterio de Frecuencias Esperadas de Cochran',
         targetVariable: `${var1} x ${var2}`,
         statistic: totalN,
         pValue: 1.0,
         sampleSize: totalN,
         threshold: 5,
         passed: totalN >= 20,
-        verdict: totalN >= 20 ? 'Frecuencias Muestrales Adecuadas' : 'Muestra Pequeña',
-        justification: 'Requiere tamaño muestral suficiente y frecuencias esperadas >5 en la mayoría de celdas.',
+        verdict: totalN >= 20 ? 'Frecuencias Muestrales Adecuadas (N ≥ 20)' : 'Muestra Pequeña',
+        justification: 'Requiere tamaño muestral representativo y frecuencias esperadas >5 en la mayoría de celdas según criterio de Cochran.',
       },
     ],
     statistic: +chiSquare.toFixed(3),
@@ -374,7 +375,7 @@ function checkNormality(values: number[], targetName: string): AssumptionCheck {
   const n = values.length;
   if (n < 4) {
     return {
-      testName: 'Shapiro-Wilk',
+      testName: "D'Agostino-Pearson K²",
       targetVariable: targetName,
       statistic: 0,
       pValue: 1.0,
@@ -386,7 +387,7 @@ function checkNormality(values: number[], targetName: string): AssumptionCheck {
     };
   }
 
-  // Calculate Skewness & Kurtosis for D'Agostino-Pearson K^2
+  // Calculate Skewness & Kurtosis for D'Agostino-Pearson K^2 omnibus test
   const mean = values.reduce((a, b) => a + b, 0) / n;
   const m2 = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
   const m3 = values.reduce((a, b) => a + Math.pow(b - mean, 3), 0) / n;
@@ -396,14 +397,14 @@ function checkNormality(values: number[], targetName: string): AssumptionCheck {
   const skewness = m3 / Math.pow(std, 3);
   const kurtosis = m4 / Math.pow(std, 4) - 3;
 
-  // D'Agostino K^2 statistic approx
+  // D'Agostino-Pearson K^2 test statistic (omnibus test for normality)
   const zSkew = skewness / Math.sqrt(6 / n);
   const zKurt = kurtosis / Math.sqrt(24 / n);
   const k2 = zSkew * zSkew + zKurt * zKurt;
   const pValue = getChiSquarePValue(k2, 2);
   const passed = pValue >= 0.05;
 
-  const testName = n < 50 ? 'Shapiro-Wilk' : 'Kolmogorov-Smirnov';
+  const testName = "D'Agostino-Pearson K² (Asimetría y Curtosis)";
 
   return {
     testName,
@@ -415,7 +416,7 @@ function checkNormality(values: number[], targetName: string): AssumptionCheck {
     passed,
     verdict: passed ? 'Cumple Normalidad (p ≥ 0.05)' : 'No Cumple Normalidad (p < 0.05)',
     justification: passed
-      ? `Asimetría (${skewness.toFixed(2)}) y curtosis (${kurtosis.toFixed(2)}) compatibles con la hipótesis nula de normalidad.`
+      ? `Asimetría (${skewness.toFixed(2)}) y curtosis (${kurtosis.toFixed(2)}) compatibles con la hipótesis nula de normalidad gaussiana.`
       : `Desviación significativa respecto a la campana de Gauss (sesgo=${skewness.toFixed(2)}, curtosis=${kurtosis.toFixed(2)}).`,
   };
 }
@@ -876,33 +877,17 @@ function getMedian(arr: number[]): number {
 }
 
 function getTPValue(t: number, df: number): number {
-  if (df <= 0) return 1;
-  const x = df / (df + t * t);
-  // Incomplete beta function approximation for Student-t
-  const p = Math.pow(x, df / 2);
-  return Math.min(1.0, Math.max(0.0001, +(p * 1.1).toFixed(4)));
+  return StatisticalValidator.getExactTPValue(t, df);
 }
 
 function getZTwoTailedPValue(absZ: number): number {
-  // Gaussian error function approximation
-  const p = Math.exp(-0.5 * absZ * absZ) / (absZ * Math.sqrt(2 * Math.PI) || 1);
-  return Math.min(1.0, Math.max(0.0001, +(2 * p).toFixed(4)));
+  return StatisticalValidator.getExactZTwoTailedPValue(absZ);
 }
 
 function getFPValue(f: number, df1: number, df2: number): number {
-  if (f <= 0 || df1 <= 0 || df2 <= 0) return 1.0;
-  const x = df2 / (df2 + df1 * f);
-  const p = Math.pow(x, df2 / 2);
-  return Math.min(1.0, Math.max(0.0001, +p.toFixed(4)));
+  return StatisticalValidator.getExactFPValue(f, df1, df2);
 }
 
 function getChiSquarePValue(chi2: number, df: number): number {
-  if (chi2 <= 0 || df <= 0) return 1.0;
-  // Wilson-Hilferty transformation of Chi-Square to normal
-  const z = Math.pow(chi2 / df, 1 / 3) - (1 - 2 / (9 * df)) / Math.sqrt(2 / (9 * df));
-  if (z > 0) {
-    const p = 0.5 * Math.exp(-0.5 * z * z) / (z * Math.sqrt(2 * Math.PI) || 1);
-    return Math.min(1.0, Math.max(0.0001, +p.toFixed(4)));
-  }
-  return 0.5;
+  return StatisticalValidator.getExactChiSquarePValue(chi2, df);
 }

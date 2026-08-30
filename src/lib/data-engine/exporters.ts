@@ -8,6 +8,7 @@
  */
 
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
+import { PDFReportExporter, PDFExportOptions } from './pdf-exporter';
 import { 
   FinalReport, 
   ProjectContract, 
@@ -232,6 +233,14 @@ ${report.recommendations.map(r => `  \\item ${r}`).join('\n')}
       logs: logs,
     } : logs;
     PipelineExporter.exportJSON(payload, `log_decisiones_seed${seed}.json`);
+  }
+
+  static async generateAndDownloadPDF(
+    report: FinalReport,
+    contractOrLog: ProjectContract | any,
+    options?: PDFExportOptions
+  ): Promise<void> {
+    return PDFReportExporter.exportHighFidelityPDF(report, contractOrLog, options);
   }
 
   static async generateAndDownloadDocx(report: FinalReport, contractOrLog: ProjectContract | any): Promise<void> {
@@ -502,7 +511,11 @@ export const exportDecisionLogJson = PipelineExporter.exportDecisionLogJson;
 export const generateMarkdownReport = PipelineExporter.generateMarkdownReport;
 export const generateLatexReport = PipelineExporter.generateLatexReport;
 export const generateAndDownloadDocx = PipelineExporter.generateAndDownloadDocx;
+export const generateAndDownloadPDF = PipelineExporter.generateAndDownloadPDF;
+export const exportPDF = PipelineExporter.generateAndDownloadPDF;
 export const ReportExporters = PipelineExporter;
+export { PDFReportExporter };
+export type { PDFExportOptions };
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
