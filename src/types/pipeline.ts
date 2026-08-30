@@ -129,6 +129,26 @@ export interface EDAOutlierFeature {
   severity: 'low' | 'moderate' | 'high';
 }
 
+export interface VIFScore {
+  variable: string;
+  vif: number;
+  rSquared: number;
+  risk: 'low' | 'moderate' | 'high';
+  topCorrelatedWith?: string;
+  maxCorrelation?: number;
+  recommendation?: string;
+}
+
+export interface MulticollinearityAnalysis {
+  hasSevereMulticollinearity: boolean;
+  maxVIF: number;
+  vifScores: VIFScore[];
+  highCorrelationPairs: CorrelationPair[];
+  overallCollinearityScore: number;
+  summary: string;
+  recommendedAction: string;
+}
+
 export interface EDASummary {
   totalChartsGenerated: number;
   charts: EDAChart[];
@@ -136,10 +156,14 @@ export interface EDASummary {
     columns: string[];
     matrix: number[][];
     topPairs: CorrelationPair[];
+    spearmanMatrix?: number[][];
+    pValuesMatrix?: number[][];
+    multicollinearity?: MulticollinearityAnalysis;
   };
   keyFindings: string[];
   totalOutliersDetected?: number;
   outlierFeatures?: EDAOutlierFeature[];
+  multicollinearity?: MulticollinearityAnalysis;
 }
 
 export interface AssumptionCheck {
@@ -192,6 +216,9 @@ export interface InferentialSummary {
 export interface MLModelEvaluation {
   id: string;
   name: string;
+  modelId?: string;
+  modelName?: string;
+  algorithm?: string;
   modelType: 'linear' | 'tree' | 'ensemble' | 'knn_svm' | 'naive_bayes';
   task: 'classification' | 'regression';
   metrics: {
@@ -200,6 +227,7 @@ export interface MLModelEvaluation {
     recall?: number;
     f1Score?: number;
     aucRoc?: number;
+    rocAuc?: number;
     rmse?: number;
     mae?: number;
     r2?: number;
@@ -212,10 +240,12 @@ export interface MLModelEvaluation {
   rocCurve?: { fpr: number; tpr: number }[];
   residualsPlot?: { actual: number; predicted: number; residual: number }[];
   featureImportances: { feature: string; importance: number; percentage: number }[];
+  featureImportance?: { feature: string; importance: number; percentage?: number }[];
   hyperparameters: Record<string, any>;
   trainTimeMs: number;
   isBest: boolean;
   paretoVerdict: string;
+  businessInterpretation?: string;
 }
 
 export interface ClusterEvaluation {
@@ -285,6 +315,11 @@ export interface FinalReport {
   sections: FinalReportSection[];
   groundedMetricCounter: number;
   integrityVerified: boolean;
+  edaSummary?: EDASummary;
+  inferentialSummary?: InferentialSummary | null;
+  mlSummary?: MLSummary | null;
+  cleaningSummary?: CleaningSummary | null;
+  contract?: ProjectContract;
 }
 
 export interface DecisionLog {

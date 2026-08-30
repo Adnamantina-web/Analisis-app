@@ -39,6 +39,7 @@ import {
   Legend
 } from 'recharts';
 import { EDAChart, EDASummary, EDAOutlierFeature } from '../types/pipeline';
+import { D3CorrelationHeatmap } from './D3CorrelationHeatmap';
 
 interface Capa3EDAProps {
   edaSummary: EDASummary | null;
@@ -354,76 +355,83 @@ export const Capa3EDA: React.FC<Capa3EDAProps> = ({
 
       {/* Grid of EDA Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {filteredCharts.map((chart) => (
-          <div 
-            key={chart.id}
-            className="bg-white border border-black/10 shadow-sm p-6 sm:p-8 flex flex-col justify-between space-y-6 hover:border-black/30 transition-colors"
-          >
-            {/* Chart Header */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center space-x-2 flex-wrap gap-1">
-                  <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 bg-[#FAF8F5] border border-black/10 text-gray-600 font-semibold">
-                    {chart.layer === 'univariate' ? 'Univariado' : 'Multivariado'} • {getChartTypeBadge(chart.chartType)}
-                  </span>
-
-                  {/* Outlier Indicator Badge */}
-                  {chart.hasOutliers && (
-                    <span className={`text-[10px] font-mono px-2 py-0.5 border font-semibold flex items-center gap-1 ${
-                      outlierMode === 'highlight' 
-                        ? 'bg-rose-50 text-rose-800 border-rose-200' 
-                        : outlierMode === 'hide'
-                        ? 'bg-neutral-100 text-neutral-800 border-neutral-300'
-                        : 'bg-amber-50 text-amber-800 border-amber-200'
-                    }`}>
-                      {outlierMode === 'highlight' && <Eye className="h-2.5 w-2.5 text-rose-600" />}
-                      {outlierMode === 'hide' && <EyeOff className="h-2.5 w-2.5 text-neutral-600" />}
-                      {chart.outlierCount} Outliers ({chart.outlierPercentage || 0}%)
+        {filteredCharts.map((chart) => {
+          const isHeatmap = chart.chartType === 'heatmap_corr';
+          return (
+            <div 
+              key={chart.id}
+              className={`bg-white border border-black/10 shadow-sm p-6 sm:p-8 flex flex-col justify-between space-y-6 hover:border-black/30 transition-colors ${
+                isHeatmap ? 'lg:col-span-2' : ''
+              }`}
+            >
+              {/* Chart Header */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2 flex-wrap gap-1">
+                    <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 bg-[#FAF8F5] border border-black/10 text-gray-600 font-semibold">
+                      {chart.layer === 'univariate' ? 'Univariado' : 'Multivariado'} • {getChartTypeBadge(chart.chartType)}
                     </span>
-                  )}
+
+                    {/* Outlier Indicator Badge */}
+                    {chart.hasOutliers && (
+                      <span className={`text-[10px] font-mono px-2 py-0.5 border font-semibold flex items-center gap-1 ${
+                        outlierMode === 'highlight' 
+                          ? 'bg-rose-50 text-rose-800 border-rose-200' 
+                          : outlierMode === 'hide'
+                          ? 'bg-neutral-100 text-neutral-800 border-neutral-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {outlierMode === 'highlight' && <Eye className="h-2.5 w-2.5 text-rose-600" />}
+                        {outlierMode === 'hide' && <EyeOff className="h-2.5 w-2.5 text-neutral-600" />}
+                        {chart.outlierCount} Outliers ({chart.outlierPercentage || 0}%)
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setExpandedChart(chart)}
+                    className="text-gray-400 hover:text-black p-1 transition cursor-pointer"
+                    title="Ampliar gráfico"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <h4 className="text-lg font-serif font-bold text-[#1A1A1A] leading-snug">
+                  {chart.title}
+                </h4>
+              </div>
+
+              {/* Chart Canvas Rendering */}
+              <div className={`w-full bg-[#FAF8F5] p-3 border border-black/5 flex flex-col justify-center ${
+                isHeatmap ? 'min-h-[420px]' : 'min-h-[280px]'
+              }`}>
+                {renderChartBody(chart, outlierMode, false)}
+              </div>
+
+              {/* Business Takeaway & Statistical Backing */}
+              <div className="space-y-3 pt-4 border-t border-black/10 font-sans">
+                <div className="border-l-4 border-l-[#E63946] pl-3 py-0.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-gray-400 font-bold">
+                    Conclusión Ejecutiva
+                  </div>
+                  <p className="text-sm font-serif italic text-[#1A1A1A] mt-0.5 leading-relaxed">
+                    &ldquo;{chart.businessTakeaway}&rdquo;
+                  </p>
                 </div>
 
-                <button
-                  onClick={() => setExpandedChart(chart)}
-                  className="text-gray-400 hover:text-black p-1 transition cursor-pointer"
-                  title="Ampliar gráfico"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <h4 className="text-lg font-serif font-bold text-[#1A1A1A] leading-snug">
-                {chart.title}
-              </h4>
-            </div>
-
-            {/* Chart Canvas Rendering */}
-            <div className="min-h-[280px] w-full bg-[#FAF8F5] p-3 border border-black/5 flex flex-col justify-center">
-              {renderChartBody(chart, outlierMode)}
-            </div>
-
-            {/* Business Takeaway & Statistical Backing */}
-            <div className="space-y-3 pt-4 border-t border-black/10 font-sans">
-              <div className="border-l-4 border-l-[#E63946] pl-3 py-0.5">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Conclusión Ejecutiva
+                <div className="text-[11px] font-mono text-gray-600 bg-[#FAF8F5] p-2.5 border border-black/5 flex items-center justify-between">
+                  <span>{chart.statisticalBacking}</span>
                 </div>
-                <p className="text-sm font-serif italic text-[#1A1A1A] mt-0.5 leading-relaxed">
-                  &ldquo;{chart.businessTakeaway}&rdquo;
-                </p>
-              </div>
-
-              <div className="text-[11px] font-mono text-gray-600 bg-[#FAF8F5] p-2.5 border border-black/5 flex items-center justify-between">
-                <span>{chart.statisticalBacking}</span>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Expanded Chart Modal */}
       {expandedChart && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-black/20 w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
+          <div className="bg-white border border-black/20 w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-black/10 pb-4">
               <div>
                 <div className="flex items-center space-x-2 mb-1">
@@ -448,8 +456,8 @@ export const Capa3EDA: React.FC<Capa3EDAProps> = ({
               </button>
             </div>
 
-            <div className="h-[380px] w-full bg-[#FAF8F5] p-4 border border-black/10">
-              {renderChartBody(expandedChart, outlierMode)}
+            <div className="w-full bg-[#FAF8F5] p-4 border border-black/10 min-h-[420px]">
+              {renderChartBody(expandedChart, outlierMode, true)}
             </div>
 
             <div className="space-y-3 bg-[#FAF8F5] p-4 border border-black/10">
@@ -510,7 +518,7 @@ function getChartTypeBadge(type: string): string {
 // Specialized Chart Renderers for Every EDA Chart Type with Outlier Support
 // -------------------------------------------------------------
 
-function renderChartBody(chart: EDAChart, outlierMode: 'highlight' | 'hide' | 'normal') {
+function renderChartBody(chart: EDAChart, outlierMode: 'highlight' | 'hide' | 'normal', isExpanded: boolean = false) {
   // 1. PARETO 80/20 CHART
   if (chart.chartType === 'pareto_chart') {
     const dataToRender = (outlierMode === 'hide' && chart.dataWithoutOutliers && chart.dataWithoutOutliers.length > 0)
@@ -658,64 +666,29 @@ function renderChartBody(chart: EDAChart, outlierMode: 'highlight' | 'hide' | 'n
     );
   }
 
-  // 3. HEATMAP CORRELATION MATRIX
+  // 3. HEATMAP CORRELATION MATRIX & MULTICOLLINEARITY (D3 POWERED)
   if (chart.chartType === 'heatmap_corr') {
     const cols: string[] = chart.metadata?.columns || [];
     const matrix: number[][] = chart.metadata?.matrix || [];
 
     if (cols.length === 0 || matrix.length === 0) {
-      return <div className="text-xs font-mono text-gray-500 text-center p-8">No hay variables numéricas suficientes para matriz de correlación.</div>;
+      return (
+        <div className="text-xs font-mono text-gray-500 text-center p-8">
+          No hay variables numéricas suficientes para matriz de correlación.
+        </div>
+      );
     }
 
     return (
-      <div className="h-full flex flex-col justify-center items-center p-2 overflow-x-auto">
-        <div className="w-full max-w-md">
-          {/* Header Row */}
-          <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `80px repeat(${cols.length}, minmax(0, 1fr))` }}>
-            <div className="text-[9px] font-mono font-bold text-gray-400 truncate">Variable</div>
-            {cols.map((col, idx) => (
-              <div key={idx} className="text-[9px] font-mono text-center text-gray-600 truncate font-semibold px-0.5" title={col}>
-                {col.slice(0, 7)}
-              </div>
-            ))}
-          </div>
-
-          {/* Matrix Rows */}
-          {cols.map((rowCol, rIdx) => (
-            <div key={rIdx} className="grid gap-1 mb-1 items-center" style={{ gridTemplateColumns: `80px repeat(${cols.length}, minmax(0, 1fr))` }}>
-              <div className="text-[9px] font-mono text-gray-700 truncate font-semibold pr-1 text-right" title={rowCol}>
-                {rowCol.slice(0, 9)}
-              </div>
-              {cols.map((colCol, cIdx) => {
-                const val = matrix[rIdx]?.[cIdx] ?? 0;
-                const isDiag = rIdx === cIdx;
-                const isPos = val >= 0;
-                const intensity = Math.min(Math.abs(val), 1);
-                
-                return (
-                  <div
-                    key={cIdx}
-                    title={`${rowCol} ↔ ${colCol}: r = ${val.toFixed(3)}`}
-                    className="flex flex-col items-center justify-center p-1.5 text-center border border-black/10 rounded-xs transition-transform hover:scale-105"
-                    style={{
-                      backgroundColor: isDiag
-                        ? '#1A1A1A'
-                        : isPos
-                        ? `rgba(230, 57, 70, ${0.1 + intensity * 0.85})`
-                        : `rgba(43, 45, 66, ${0.15 + intensity * 0.85})`,
-                      color: isDiag || intensity > 0.45 ? '#FFFFFF' : '#1A1A1A'
-                    }}
-                  >
-                    <span className="text-[10px] font-mono font-bold">
-                      {isDiag ? '1.0' : val.toFixed(2)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
+      <D3CorrelationHeatmap
+        columns={cols}
+        matrix={matrix}
+        spearmanMatrix={chart.metadata?.spearmanMatrix}
+        pValuesMatrix={chart.metadata?.pValuesMatrix}
+        topPairs={chart.metadata?.topPairs || []}
+        multicollinearity={chart.metadata?.multicollinearity}
+        isExpanded={isExpanded}
+      />
     );
   }
 

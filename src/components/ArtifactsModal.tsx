@@ -40,6 +40,10 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
   onClose,
   finalReport,
   contract,
+  cleaningSummary,
+  edaSummary,
+  inferentialSummary,
+  mlSummary,
   decisionLogs,
   cleanedRows,
 }) => {
@@ -52,7 +56,13 @@ export const ArtifactsModal: React.FC<ArtifactsModalProps> = ({
 
     if (format === 'markdown') {
       if (finalReport && contract) {
-        const md = ReportExporters.generateMarkdownReport(finalReport, contract);
+        const md = ReportExporters.generateMarkdownReport(finalReport, contract, {
+          edaSummary,
+          inferentialSummary,
+          mlSummary,
+          cleaningSummary,
+          contract
+        });
         downloadBlob(new Blob([md], { type: 'text/markdown;charset=utf-8;' }), `${filenameBase}_informe.md`);
       }
     } else if (format === 'latex') {

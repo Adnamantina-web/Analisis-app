@@ -240,6 +240,11 @@ export class StorytellingEngine {
       sections,
       groundedMetricCounter,
       integrityVerified: true,
+      edaSummary: eda,
+      inferentialSummary: inferential,
+      mlSummary: ml,
+      cleaningSummary: cleaning,
+      contract,
     };
   }
 }

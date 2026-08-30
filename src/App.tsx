@@ -437,6 +437,11 @@ export default function App() {
               decisionLog={decisionLog}
               cleanedData={cleanedRows}
               rawData={rawRows}
+              edaSummary={edaSummary}
+              inferentialSummary={inferentialSummary}
+              mlSummary={mlSummary}
+              cleaningSummary={cleaningSummary}
+              contract={contract}
               onOpenArtifactsModal={() => setIsArtifactsModalOpen(true)}
               isProcessing={isProcessing}
             />
@@ -448,11 +453,14 @@ export default function App() {
       <ArtifactsModal
         isOpen={isArtifactsModalOpen}
         onClose={() => setIsArtifactsModalOpen(false)}
-        report={finalReport}
-        decisionLog={decisionLog}
-        cleanedData={cleanedRows}
-        rawData={rawRows}
+        finalReport={finalReport}
+        contract={contract}
+        cleaningSummary={cleaningSummary}
+        edaSummary={edaSummary}
+        inferentialSummary={inferentialSummary}
         mlSummary={mlSummary}
+        decisionLogs={decisionLog?.entries || []}
+        cleanedRows={cleanedRows}
       />
     </div>
   );

@@ -9,7 +9,7 @@
  * - Cada figura cuenta con respaldo estadístico numérico y conclusión ejecutiva de negocio.
  */
 
-import { ColumnSchema, CorrelationPair, EDAChart, EDAOutlierFeature, EDASummary, ProjectContract } from '../../types/pipeline';
+import { ColumnSchema, CorrelationPair, EDAChart, EDAOutlierFeature, EDASummary, MulticollinearityAnalysis, ProjectContract, VIFScore } from '../../types/pipeline';
 
 export class EDAEngine {
   static analyze(
@@ -54,9 +54,10 @@ export class EDAEngine {
     // -------------------------------------------------------------
     if (numCols.length >= 2) {
       const topP = corrMatrixData.topPairs[0];
+      const multi = corrMatrixData.multicollinearity;
       charts.push({
         id: 'eda_corr_heatmap',
-        title: 'Matriz de Correlación Lineal y Monótona (Heatmap)',
+        title: 'Matriz de Correlación D3 & Diagnóstico de Multicolinealidad',
         layer: 'multivariate',
         chartType: 'heatmap_corr',
         variables: numCols.map(c => c.name),
@@ -65,13 +66,18 @@ export class EDAEngine {
         metadata: {
           columns: corrMatrixData.columns,
           matrix: corrMatrixData.matrix,
+          spearmanMatrix: corrMatrixData.spearmanMatrix,
+          pValuesMatrix: corrMatrixData.pValuesMatrix,
           topPairs: corrMatrixData.topPairs,
+          multicollinearity: corrMatrixData.multicollinearity,
           totalVariables: numCols.length,
         },
-        businessTakeaway: topP
+        businessTakeaway: multi.hasSevereMulticollinearity
+          ? `Alerta de Multicolinealidad Temprana: ${multi.summary} Se recomienda verificar pares como '${multi.highCorrelationPairs[0]?.var1}' ↔ '${multi.highCorrelationPairs[0]?.var2}' antes de entrenar regresión.`
+          : topP
           ? `La mayor asociación empírica se registra entre '${topP.var1}' y '${topP.var2}' (r=${topP.pearsonR > 0 ? '+' : ''}${topP.pearsonR.toFixed(2)}, correlación ${topP.strength.toLowerCase()}). ${topP.isSignificant ? 'Efecto estadísticamente significativo (p < 0.05).' : 'No alcanza significancia estadística.'}`
           : 'Estructura multivariada de baja colinealidad global.',
-        statisticalBacking: `Matriz simétrica calculada sobre n=${rows.length} registros completos. Coeficientes de Pearson (lineal) y Spearman (monótono).`,
+        statisticalBacking: `Matriz simétrica calculada sobre n=${rows.length} registros completos con cálculo de VIF (Variance Inflation Factor), coeficientes de Pearson (lineal) y Spearman (monótono).`,
       });
     }
 
@@ -377,11 +383,15 @@ export class EDAEngine {
       correlationMatrix: {
         columns: corrMatrixData.columns,
         matrix: corrMatrixData.matrix,
+        spearmanMatrix: corrMatrixData.spearmanMatrix,
+        pValuesMatrix: corrMatrixData.pValuesMatrix,
         topPairs: corrMatrixData.topPairs,
+        multicollinearity: corrMatrixData.multicollinearity,
       },
       keyFindings,
       totalOutliersDetected,
       outlierFeatures: outlierDiagnostics,
+      multicollinearity: corrMatrixData.multicollinearity,
     };
   }
 }
@@ -587,14 +597,20 @@ function computeParetoData(rows: Record<string, any>[], numCol: string, catCol?:
 function computeCorrelationMatrix(rows: Record<string, any>[], numCols: ColumnSchema[]) {
   const cols = numCols.map(c => c.name);
   const matrix: number[][] = [];
+  const spearmanMatrix: number[][] = [];
+  const pValuesMatrix: number[][] = [];
   const topPairs: CorrelationPair[] = [];
   const cellList: { x: string; y: string; value: number; pValue: number; spearmanRho: number }[] = [];
 
   for (let i = 0; i < cols.length; i++) {
     matrix[i] = [];
+    spearmanMatrix[i] = [];
+    pValuesMatrix[i] = [];
     for (let j = 0; j < cols.length; j++) {
       if (i === j) {
         matrix[i][j] = 1.0;
+        spearmanMatrix[i][j] = 1.0;
+        pValuesMatrix[i][j] = 0;
         cellList.push({ x: cols[i], y: cols[j], value: 1.0, pValue: 0, spearmanRho: 1.0 });
       } else {
         const x = rows.map(r => Number(r[cols[i]]) || 0);
@@ -604,6 +620,8 @@ function computeCorrelationMatrix(rows: Record<string, any>[], numCols: ColumnSc
         const pVal = calculateCorrelationPValue(r, x.length);
         
         matrix[i][j] = +r.toFixed(3);
+        spearmanMatrix[i][j] = +rho.toFixed(3);
+        pValuesMatrix[i][j] = +pVal.toFixed(4);
         cellList.push({ x: cols[i], y: cols[j], value: +r.toFixed(3), pValue: pVal, spearmanRho: +rho.toFixed(3) });
 
         if (i < j) {
@@ -631,7 +649,175 @@ function computeCorrelationMatrix(rows: Record<string, any>[], numCols: ColumnSc
 
   topPairs.sort((a, b) => Math.abs(b.pearsonR) - Math.abs(a.pearsonR));
 
-  return { columns: cols, matrix, topPairs, cellList };
+  // Compute VIF and Multicollinearity analysis
+  const multicollinearity = computeMulticollinearity(cols, matrix, topPairs);
+
+  return { columns: cols, matrix, spearmanMatrix, pValuesMatrix, topPairs, cellList, multicollinearity };
+}
+
+function computeMulticollinearity(
+  cols: string[],
+  matrix: number[][],
+  topPairs: CorrelationPair[]
+): MulticollinearityAnalysis {
+  const k = cols.length;
+  const vifScores: VIFScore[] = [];
+
+  if (k <= 1) {
+    return {
+      hasSevereMulticollinearity: false,
+      maxVIF: 1.0,
+      vifScores: cols.map(c => ({
+        variable: c,
+        vif: 1.0,
+        rSquared: 0,
+        risk: 'low',
+        recommendation: 'Variable independiente única.',
+      })),
+      highCorrelationPairs: [],
+      overallCollinearityScore: 0,
+      summary: 'Sin riesgo de multicolinealidad (variable única).',
+      recommendedAction: 'Estructura lista para modelado.',
+    };
+  }
+
+  // Calculate VIF for each variable using regularized correlation matrix inversion
+  // In correlation matrix R, VIF_j = (R^-1)_jj
+  // Regularize with small lambda = 1e-4 to prevent numerical breakdown
+  const regularizedR: number[][] = [];
+  for (let i = 0; i < k; i++) {
+    regularizedR[i] = [];
+    for (let j = 0; j < k; j++) {
+      regularizedR[i][j] = matrix[i][j] + (i === j ? 0.0001 : 0);
+    }
+  }
+
+  const invR = invertMatrixGaussJordan(regularizedR);
+
+  for (let i = 0; i < k; i++) {
+    let vifVal = 1.0;
+    if (invR && invR[i] && typeof invR[i][i] === 'number' && !isNaN(invR[i][i]) && invR[i][i] > 0) {
+      vifVal = Math.max(1.0, +invR[i][i].toFixed(2));
+    } else {
+      // Fallback: estimate from max pairwise correlation with other features
+      let maxPairR = 0;
+      for (let j = 0; j < k; j++) {
+        if (i !== j) maxPairR = Math.max(maxPairR, Math.abs(matrix[i][j]));
+      }
+      const r2 = Math.min(0.99, Math.pow(maxPairR, 2));
+      vifVal = +(1 / (1 - r2)).toFixed(2);
+    }
+
+    // Find top correlated partner for explanation
+    let topPartner = '';
+    let maxR = 0;
+    for (let j = 0; j < k; j++) {
+      if (i !== j && Math.abs(matrix[i][j]) > maxR) {
+        maxR = Math.abs(matrix[i][j]);
+        topPartner = cols[j];
+      }
+    }
+
+    const rSquared = +(1 - 1 / vifVal).toFixed(3);
+    let risk: 'low' | 'moderate' | 'high' = 'low';
+    let recommendation = 'VIF < 5: Varianza estable, sin colinealidad que afecte coeficientes.';
+
+    if (vifVal >= 10) {
+      risk = 'high';
+      recommendation = `VIF >= 10 (Crítico): Alta redundancia lineal (asociada a '${topPartner}' r=${maxR.toFixed(2)}). Considerar eliminar una o aplicar PCA/Ridge.`;
+    } else if (vifVal >= 5) {
+      risk = 'moderate';
+      recommendation = `5 <= VIF < 10 (Moderado): Cierta inflación de varianza. Monitorear estabilidad de p-values en regresión.`;
+    }
+
+    vifScores.push({
+      variable: cols[i],
+      vif: vifVal,
+      rSquared: Math.max(0, rSquared),
+      risk,
+      topCorrelatedWith: topPartner,
+      maxCorrelation: maxR,
+      recommendation,
+    });
+  }
+
+  // Sort VIF descending by risk
+  vifScores.sort((a, b) => b.vif - a.vif);
+
+  const highCorrelationPairs = topPairs.filter(p => Math.abs(p.pearsonR) >= 0.70);
+  const maxVIF = vifScores[0]?.vif || 1.0;
+  const hasSevereMulticollinearity = maxVIF >= 10 || highCorrelationPairs.some(p => Math.abs(p.pearsonR) >= 0.85);
+
+  // Overall Collinearity index (0 to 100)
+  const avgHighPairs = highCorrelationPairs.length / Math.max(1, (k * (k - 1)) / 2);
+  const overallCollinearityScore = Math.min(100, Math.round((Math.min(maxVIF, 20) / 20) * 60 + avgHighPairs * 40));
+
+  let summary = 'Estructura multivariada con baja colinealidad general. Los predictores cuantitativos son ortogonalmente estables.';
+  let recommendedAction = 'No se requieren transformaciones de reducción dimensional para modelos lineales.';
+
+  if (hasSevereMulticollinearity) {
+    const severeVars = vifScores.filter(v => v.risk === 'high').map(v => v.variable).join(', ');
+    summary = `Alerta de Multicolinealidad Severa: Se identificaron factores de inflación de varianza críticos (VIF max = ${maxVIF}) y pares con |r| >= 0.70 (${highCorrelationPairs.length} pares detectados). Variables con alta redundancia: ${severeVars || 'múltiples'}.`;
+    recommendedAction = 'En modelos paramétricos lineales (OLS/Logit) se recomienda aplicar regularización L2 (Ridge) o consolidar variables altamente correlacionadas.';
+  } else if (vifScores.some(v => v.risk === 'moderate')) {
+    summary = `Multicolinealidad Moderada detectada en ${vifScores.filter(v => v.risk === 'moderate').length} variable(s) (5 <= VIF < 10).`;
+    recommendedAction = 'Los modelos de ensamble basados en árboles (Random Forest, Gradient Boosting) absorberán esta estructura sin problemas; en OLS revisar significancia individual.';
+  }
+
+  return {
+    hasSevereMulticollinearity,
+    maxVIF,
+    vifScores,
+    highCorrelationPairs,
+    overallCollinearityScore,
+    summary,
+    recommendedAction,
+  };
+}
+
+function invertMatrixGaussJordan(matrix: number[][]): number[][] | null {
+  const n = matrix.length;
+  // Create augmented matrix [A | I]
+  const aug: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    aug[i] = [];
+    for (let j = 0; j < n; j++) aug[i][j] = matrix[i][j];
+    for (let j = 0; j < n; j++) aug[i][n + j] = i === j ? 1 : 0;
+  }
+
+  for (let i = 0; i < n; i++) {
+    // Find pivot
+    let maxRow = i;
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(aug[k][i]) > Math.abs(aug[maxRow][i])) maxRow = k;
+    }
+    if (Math.abs(aug[maxRow][i]) < 1e-9) return null; // Singular
+
+    // Swap rows
+    const temp = aug[i];
+    aug[i] = aug[maxRow];
+    aug[maxRow] = temp;
+
+    // Scale pivot row
+    const pivot = aug[i][i];
+    for (let j = 0; j < 2 * n; j++) aug[i][j] /= pivot;
+
+    // Eliminate other rows
+    for (let k = 0; k < n; k++) {
+      if (k !== i) {
+        const factor = aug[k][i];
+        for (let j = 0; j < 2 * n; j++) aug[k][j] -= factor * aug[i][j];
+      }
+    }
+  }
+
+  // Extract right half
+  const inv: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    inv[i] = [];
+    for (let j = 0; j < n; j++) inv[i][j] = aug[i][n + j];
+  }
+  return inv;
 }
 
 function calculatePearson(x: number[], y: number[]): number {
